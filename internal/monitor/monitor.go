@@ -2,44 +2,49 @@ package monitor
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/user/portwatch/internal/scanner"
 )
 
-// PortState holds the last known state of scanned ports.
-type PortState struct {
-	OpenPorts map[int]bool
-	LastSeen  time.Time
-}
+// ChangeType describes whether a port was opened or closed.
+type ChangeType int
 
-// Change represents a detected port state change.
+const (
+	ChangeOpened ChangeType = iota
+	ChangeClosed
+)
+
+// Change represents a single port state transition.
 type Change struct {
-	Port   int
-	Kind   string // "opened" or "closed"
-	At     time.Time
+	Type ChangeType
+	Port scanner.Port
 }
 
+// String returns a human-readable description of the change.
 func (c Change) String() string {
-	return fmt.Sprintf("[%s] port %d was %s", c.At.Format(time.RFC3339), c.Port, c.Kind)
+	action := "opened"
+	if c.Type == ChangeClosed {
+		action = "closed"
+	}
+	return fmt.Sprintf("port %s %s", c.Port.String(), action)
 }
 
-// Monitor watches for port changes over time.
+// Monitor tracks port state between scans and reports changes.
 type Monitor struct {
 	scanner  *scanner.Scanner
-	previous PortState
-	Interval time.Duration
+	previous map[int]bool
 }
 
 // NewMonitor creates a Monitor using the provided Scanner.
-func NewMonitor(s *scanner.Scanner, interval time.Duration) *Monitor {
+func NewMonitor(s *scanner.Scanner) *Monitor {
 	return &Monitor{
 		scanner:  s,
-		Interval: interval,
+		previous: nil,
 	}
 }
 
-// Scan performs a single scan and returns any changes since the last scan.
+// Scan performs a port scan and returns any changes since the last call.
+// On the first call no changes are reported; the baseline is established.
 func (m *Monitor) Scan() ([]Change, error) {
 	ports, err := m.scanner.Scan()
 	if err != nil {
@@ -48,52 +53,34 @@ func (m *Monitor) Scan() ([]Change, error) {
 
 	current := make(map[int]bool, len(ports))
 	for _, p := range ports {
-		current[p.Port] = true
+		current[p.Number] = true
 	}
 
-	now := time.Now()
+	// First run — establish baseline.
+	if m.previous == nil {
+		m.previous = current
+		return nil, nil
+	}
+
 	var changes []Change
 
 	// Detect newly opened ports.
-	for port := range current {
-		if !m.previous.OpenPorts[port] {
-			changes = append(changes, Change{Port: port, Kind: "opened", At: now})
+	for _, p := range ports {
+		if !m.previous[p.Number] {
+			changes = append(changes, Change{Type: ChangeOpened, Port: p})
 		}
 	}
 
 	// Detect closed ports.
-	for port := range m.previous.OpenPorts {
-		if !current[port] {
-			changes = append(changes, Change{Port: port, Kind: "closed", At: now})
+	for num := range m.previous {
+		if !current[num] {
+			changes = append(changes, Change{
+				Type: ChangeClosed,
+				Port: scanner.Port{Number: num, Protocol: "tcp"},
+			})
 		}
 	}
 
-	m.previous = PortState{OpenPorts: current, LastSeen: now}
+	m.previous = current
 	return changes, nil
-}
-
-// Run starts the monitoring loop, sending changes to the returned channel.
-// Close the done channel to stop the loop.
-func (m *Monitor) Run(done <-chan struct{}) <-chan Change {
-	ch := make(chan Change, 16)
-	go func() {
-		defer close(ch)
-		ticker := time.NewTicker(m.Interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-done:
-				return
-			case <-ticker.C:
-				changes, err := m.Scan()
-				if err != nil {
-					continue
-				}
-				for _, c := range changes {
-					ch <- c
-				}
-			}
-		}
-	}()
-	return ch
 }
