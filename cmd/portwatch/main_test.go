@@ -22,14 +22,10 @@ func TestMainBinaryBuilds(t *testing.T) {
 // TestMainExitsOnSIGTERM starts the binary and sends SIGTERM, expecting a
 // clean exit within a reasonable timeout.
 func TestMainExitsOnSIGTERM(t *testing.T) {
-	// Build first.
-	build := exec.Command("go", "build", "-o", "portwatch_test_bin", ".")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build failed: %v\n%s", err, out)
-	}
-	defer os.Remove("portwatch_test_bin")
+	bin := buildTestBinary(t, "portwatch_test_bin")
+	defer os.Remove(bin)
 
-	cmd := exec.Command("./portwatch_test_bin")
+	cmd := exec.Command("./' + bin)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start binary: %v", err)
 	}
@@ -51,4 +47,16 @@ func TestMainExitsOnSIGTERM(t *testing.T) {
 		cmd.Process.Kill()
 		t.Fatal("binary did not exit within timeout after SIGTERM")
 	}
+}
+
+// buildTestBinary compiles the package into a temporary binary with the given
+// name and returns the path. The test is failed immediately if compilation
+// does not succeed.
+func buildTestBinary(t *testing.T, name string) string {
+	t.Helper()
+	build := exec.Command("go", "build", "-o", name, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+	return "./" + name
 }
