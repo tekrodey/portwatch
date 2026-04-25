@@ -28,9 +28,28 @@ prev, err := snapshot.Load("/var/lib/portwatch/last.json")
 if err != nil {
     log.Fatal(err)
 }
+
+// Compare two snapshots to detect changes between runs.
+added, removed := snapshot.Diff(prev, s)
+for _, e := range added {
+    fmt.Printf("new port: %d/%s\n", e.Port, e.Protocol)
+}
+for _, e := range removed {
+    fmt.Printf("closed port: %d/%s\n", e.Port, e.Protocol)
+}
 ```
 
 ## File format
 
 Snapshots are stored as indented JSON so they are human-readable and can be
 inspected with standard tooling such as `jq`.
+
+## Diff
+
+`snapshot.Diff(prev, curr)` returns two slices of `Entry` values:
+
+- **added** — ports present in `curr` but not in `prev`.
+- **removed** — ports present in `prev` but not in `curr`.
+
+This is the primary mechanism used by portwatch to detect and report changes
+between consecutive scans.
