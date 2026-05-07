@@ -44,3 +44,12 @@ m, err := presencemap.Load("/var/lib/portwatch/presence.json", time.Now)
 ```
 
 A missing file is treated as an empty map (no error).
+
+## Key format
+
+Keys are conventionally formatted as `"proto:port"` (e.g. `"tcp:443"`, `"udp:53"`). The `Key` helper constructs a canonical key from its components:
+
+```go
+k := presencemap.Key("tcp", 443) // returns "tcp:443"
+m.Touch(k)
+```
